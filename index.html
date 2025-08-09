@@ -15,6 +15,9 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Tesseract.js for OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.3/dist/tesseract.min.js"></script>
+    
     <style>
         .loading {
             animation: spin 2s linear infinite;
@@ -55,7 +58,7 @@
                 <div id="loading" class="mt-4 hidden">
                     <div class="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg inline-flex items-center gap-2">
                         <div class="loading rounded-full h-4 w-4 border-2 border-yellow-600 border-t-transparent"></div>
-                        Analisando imagem com OCR...
+                        <span id="ocr-progress-text">Analisando imagem com OCR...</span>
                     </div>
                 </div>
             </div>
@@ -140,6 +143,7 @@
         const uploadInput = document.getElementById('screenshot-input');
         const uploadText = document.getElementById('upload-text');
         const loading = document.getElementById('loading');
+        const progressText = document.getElementById('ocr-progress-text');
         const totalCorridas = document.getElementById('total-corridas');
         const totalPrints = document.getElementById('total-prints');
         const ultimoOCR = document.getElementById('ultimo-ocr');
@@ -169,41 +173,108 @@
             localStorage.setItem('printsOCR99', JSON.stringify(printsArmazenados));
         }
 
-        // Simular OCR
-        async function extrairDadosOCR(arquivo) {
-            const locais = [
-                'Shopping Center Norte', 'Aeroporto Guarulhos', 'Vila Madalena',
-                'Pinheiros', 'Brooklin', 'Moema', 'Jardins', 'Centro',
-                'Morumbi', 'Tatuapé', 'Santo Amaro', 'Liberdade'
-            ];
+        // Função para extrair dados do texto OCR - VERSÃO ATUALIZADA PARA OS DOIS FORMATOS
+        function extrairDadosCorrida(textoOCR) {
+            // Padrão para valor (formato 1: R$62,90 / formato 2: R$49,35)
+            const padraoValor1 = /(?:valor|total|r\$)\s*[\:\-]?\s*(\d+[\.,]\d{2})/i;
+            const padraoValor2 = /^\s*R\$\s*(\d+[\.,]\d{2})\s*$/im;
+            const valorMatch = textoOCR.match(padraoValor1) || textoOCR.match(padraoValor2);
             
-            const destinos = [
-                'Aeroporto Congonhas', 'Shopping Villa-Lobos', 'Alphaville',
-                'Santana', 'Ipiranga', 'Vila Olímpia', 'Itaim Bibi',
-                'São Bernardo', 'Santo André', 'Guarulhos Centro'
-            ];
+            // Converter valor para número
+            let valor = null;
+            if (valorMatch) {
+                valor = parseFloat(valorMatch[1].replace(',', '.'));
+            }
 
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    resolve({
-                        valor: Math.random() * 50 + 25,
-                        origem: locais[Math.floor(Math.random() * locais.length)],
-                        destino: destinos[Math.floor(Math.random() * destinos.length)]
-                    });
-                }, 2000);
-            });
+            // Padrões para endereços nos dois formatos
+            let origem = "Origem não identificada";
+            let destino = "Destino não identificado";
+            
+            // Tenta identificar o formato da tela cheia primeiro
+            const padraoTelaCheiaOrigem = /(?:embarque|peguei em|sai de|de)\s*[\:\-]?\s*(.+?)\s*(?=para|até|cheguei em|fui para|;|\n|$)/i;
+            const padraoTelaCheiaDestino = /(?:para|até|cheguei em|fui para|destino)\s*[\:\-]?\s*(.+?)\s*(?=valor|total|r\$|;|\n|$)/i;
+            
+            const origemTelaCheia = textoOCR.match(padraoTelaCheiaOrigem);
+            const destinoTelaCheia = textoOCR.match(padraoTelaCheiaDestino);
+            
+            if (origemTelaCheia && destinoTelaCheia) {
+                origem = origemTelaCheia[1].trim();
+                destino = destinoTelaCheia[1].trim();
+            } else {
+                // Tenta identificar o formato do radar
+                const linhas = textoOCR.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                const enderecos = [];
+                
+                // Procura por linhas que parecem endereços
+                for (let i = 0; i < linhas.length; i++) {
+                    const linha = linhas[i];
+                    // Ignora linhas com valores, horários ou muito curtas
+                    if (!linha.match(/(r\$|\d+[\.,]\d{2}|\d+ min|\d+[,.]\d+ km)/i) && 
+                        linha.length > 15 && 
+                        !linha.match(/^(solicitações|escolha uma|pop expresso|tarifa mais alta|isso é tudo)/i)) {
+                        enderecos.push(linha);
+                    }
+                }
+                
+                // Se encontrou pelo menos 2 endereços, assume que são origem e destino
+                if (enderecos.length >= 2) {
+                    origem = enderecos[0];
+                    destino = enderecos[1];
+                } else if (enderecos.length === 1) {
+                    origem = enderecos[0];
+                }
+                
+                // Tenta extrair endereços entre parênteses (formato radar)
+                const padraoParenteses = /\(([^)]+)\)/g;
+                const matches = [...textoOCR.matchAll(padraoParenteses)];
+                if (matches.length >= 2) {
+                    origem = matches[0][1].trim();
+                    destino = matches[1][1].trim();
+                }
+            }
+            
+            // Limpeza dos endereços
+            origem = origem.replace(/^\W+|\W+$/g, ''); // Remove caracteres especiais no início/fim
+            destino = destino.replace(/^\W+|\W+$/g, '');
+            
+            return {
+                valor: valor,
+                origem: origem,
+                destino: destino
+            };
         }
 
-        // Processar screenshot
+        // Processar screenshot com OCR real
         async function processarScreenshot(arquivo) {
             if (!arquivo) return;
 
             loading.classList.remove('hidden');
-            uploadText.textContent = 'Processando OCR...';
+            progressText.textContent = "Analisando imagem com OCR...";
+            uploadText.textContent = 'Processando...';
 
             try {
-                const dados = await extrairDadosOCR(arquivo);
+                const { data: { text } } = await Tesseract.recognize(
+                    arquivo,
+                    'por',
+                    {
+                        logger: progresso => {
+                            if (progresso.status === 'recognizing text') {
+                                const progressoPorcentagem = Math.round(progresso.progress * 100);
+                                progressText.textContent = `OCR: ${progressoPorcentagem}%`;
+                            }
+                        }
+                    }
+                );
+
+                console.log("Texto extraído pelo OCR:", text);
                 
+                const dados = extrairDadosCorrida(text);
+                
+                if (!dados.valor) {
+                    alert("❌ Não foi possível identificar o valor da corrida");
+                    return;
+                }
+
                 if (dados.valor < filtroValor) {
                     alert(`❌ Corrida de R$ ${dados.valor.toFixed(2)} ignorada (abaixo de R$ ${filtroValor})`);
                     return;
@@ -211,9 +282,9 @@
 
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    const novaCorreida = {
+                    const novaCorrida = {
                         id: Date.now(),
-                        valor: parseFloat(dados.valor.toFixed(2)),
+                        valor: dados.valor,
                         origem: dados.origem,
                         destino: dados.destino,
                         dataHora: new Date().toISOString(),
@@ -222,25 +293,25 @@
                         screenshot: e.target.result
                     };
 
-                    corridasCapturadas.unshift(novaCorreida);
+                    corridasCapturadas.unshift(novaCorrida);
                     printsArmazenados.unshift({
-                        id: novaCorreida.id,
+                        id: novaCorrida.id,
                         imagem: e.target.result,
                         dados: dados,
-                        dataHora: novaCorreida.dataHora
+                        dataHora: novaCorrida.dataHora
                     });
 
                     salvarDados();
                     atualizarInterface();
                     
-                    alert(`✅ Corrida de R$ ${dados.valor.toFixed(2)} capturada com sucesso!`);
+                    alert(`✅ Corrida de R$ ${dados.valor.toFixed(2)} capturada com sucesso!\nDe: ${dados.origem}\nPara: ${dados.destino}`);
                 };
                 
                 reader.readAsDataURL(arquivo);
 
             } catch (error) {
                 alert('❌ Erro ao processar screenshot');
-                console.error(error);
+                console.error("Erro no OCR:", error);
             } finally {
                 loading.classList.add('hidden');
                 uploadText.textContent = 'Selecionar Screenshot';
@@ -290,7 +361,7 @@
                                 R$ 35+
                             </div>
                         </div>
-                        <button onclick="excluirCorreida(${corrida.id})" class="text-red-500 hover:text-red-700">
+                        <button onclick="excluirCorrida(${corrida.id})" class="text-red-500 hover:text-red-700">
                             🗑️
                         </button>
                     </div>
@@ -382,7 +453,7 @@
         }
 
         // Excluir corrida
-        function excluirCorreida(id) {
+        function excluirCorrida(id) {
             if (confirm('Deseja excluir esta corrida?')) {
                 corridasCapturadas = corridasCapturadas.filter(c => c.id !== id);
                 printsArmazenados = printsArmazenados.filter(p => p.id !== id);
@@ -410,10 +481,6 @@
                     .catch(() => console.log('Service Worker falhou'));
             }
         });
-
-        // Teste inicial (remover em produção)
-        console.log('✅ App carregado com sucesso!');
     </script>
-
 </body>
 </html>
