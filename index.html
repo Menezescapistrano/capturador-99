@@ -6,7 +6,6 @@
     <title>Capturador 99 OCR</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#6366f1">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
     
     <!-- PWA Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,471 +15,405 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+        .loading {
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
-<body>
-    <div id="root"></div>
-
-    <script type="text/babel">
-        const { useState, useEffect } = React;
-        const { Camera, MapPin, Clock, BarChart3, Upload, Eye, Trash2, CheckCircle } = lucide;
-
-        const CapturadorApp = () => {
-            const [corridasCapturadas, setCorridasCapturadas] = useState([]);
-            const [printsArmazenados, setPrintsArmazenados] = useState([]);
-            const [processandoImagem, setProcessandoImagem] = useState(false);
-            const [analises, setAnalises] = useState({});
-            const [filtroValor] = useState(35);
-            const [ultimoProcessamento, setUltimoProcessamento] = useState(null);
-
-            // Carregar dados salvos
-            useEffect(() => {
-                const corridasSalvas = localStorage.getItem('corridasOCR99');
-                const printsSalvos = localStorage.getItem('printsOCR99');
+<body class="bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 min-h-screen">
+    
+    <!-- Header -->
+    <div class="max-w-4xl mx-auto p-4">
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-6 mb-6">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="bg-gradient-to-r from-purple-500 to-pink-500 p-3 rounded-full">
+                    <div class="w-8 h-8 text-white text-2xl">📷</div>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">Capturador OCR 99</h1>
+                    <p class="text-gray-600">Screenshot → OCR → Análise Automática</p>
+                </div>
+            </div>
+            
+            <!-- Upload Area -->
+            <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-6 border-2 border-dashed border-purple-300 text-center">
+                <div class="text-6xl mb-4">📸</div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">Envie o Screenshot da Corrida da 99</h3>
+                <p class="text-gray-600 mb-4">O app vai ler automaticamente e salvar apenas se for acima de R$ 35</p>
                 
-                if (corridasSalvas) {
-                    setCorridasCapturadas(JSON.parse(corridasSalvas));
-                }
-                if (printsSalvos) {
-                    setPrintsArmazenados(JSON.parse(printsSalvos));
-                }
-            }, []);
-
-            // Salvar dados automaticamente
-            useEffect(() => {
-                localStorage.setItem('corridasOCR99', JSON.stringify(corridasCapturadas));
-                localStorage.setItem('printsOCR99', JSON.stringify(printsArmazenados));
-                analisarDados();
-            }, [corridasCapturadas, printsArmazenados]);
-
-            // Simular OCR
-            const extrairDadosOCR = async (arquivo) => {
-                setProcessandoImagem(true);
+                <label class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-8 py-4 rounded-xl font-bold cursor-pointer hover:from-purple-600 hover:to-pink-600 transition-all inline-flex items-center gap-2">
+                    <span>📤</span>
+                    <span id="upload-text">Selecionar Screenshot</span>
+                    <input type="file" id="screenshot-input" accept="image/*" class="hidden">
+                </label>
                 
-                return new Promise((resolve) => {
-                    setTimeout(() => {
-                        const dadosSimulados = {
-                            valor: Math.random() * 50 + 25,
-                            origem: [
-                                'Shopping Center Norte', 'Aeroporto Guarulhos', 'Vila Madalena',
-                                'Pinheiros', 'Brooklin', 'Moema', 'Jardins', 'Centro',
-                                'Morumbi', 'Tatuapé', 'Santo Amaro', 'Liberdade'
-                            ][Math.floor(Math.random() * 12)],
-                            destino: [
-                                'Aeroporto Congonhas', 'Shopping Villa-Lobos', 'Alphaville',
-                                'Santana', 'Ipiranga', 'Vila Olímpia', 'Itaim Bibi',
-                                'São Bernardo', 'Santo André', 'Guarulhos Centro'
-                            ][Math.floor(Math.random() * 10)]
-                        };
-                        
-                        setProcessandoImagem(false);
-                        resolve(dadosSimulados);
-                    }, 2000);
-                });
-            };
+                <div id="loading" class="mt-4 hidden">
+                    <div class="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg inline-flex items-center gap-2">
+                        <div class="loading rounded-full h-4 w-4 border-2 border-yellow-600 border-t-transparent"></div>
+                        Analisando imagem com OCR...
+                    </div>
+                </div>
+            </div>
 
-            // Processar screenshot
-            const processarScreenshot = async (evento) => {
-                const arquivo = evento.target.files[0];
-                if (!arquivo) return;
+            <!-- Status -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div class="bg-green-50 p-4 rounded-xl text-center">
+                    <div class="text-2xl font-bold text-green-600" id="total-corridas">0</div>
+                    <div class="text-sm text-gray-600">Corridas Capturadas</div>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-xl text-center">
+                    <div class="text-2xl font-bold text-blue-600">R$ 35+</div>
+                    <div class="text-sm text-gray-600">Filtro Mínimo</div>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-xl text-center">
+                    <div class="text-2xl font-bold text-purple-600" id="total-prints">0</div>
+                    <div class="text-sm text-gray-600">Prints Salvos</div>
+                </div>
+                <div class="bg-orange-50 p-4 rounded-xl text-center">
+                    <div class="text-2xl font-bold text-orange-600" id="ultimo-ocr">--:--</div>
+                    <div class="text-sm text-gray-600">Último OCR</div>
+                </div>
+            </div>
+        </div>
 
-                setUltimoProcessamento(new Date());
-                
-                try {
-                    const dadosExtraidos = await extrairDadosOCR(arquivo);
-                    
-                    if (dadosExtraidos.valor < filtroValor) {
-                        alert(`❌ Corrida de R$ ${dadosExtraidos.valor.toFixed(2)} ignorada (abaixo de R$ ${filtroValor})`);
-                        return;
-                    }
+        <!-- Análises -->
+        <div id="analises" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 hidden">
+            <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">📍</span>
+                    <h3 class="text-lg font-bold text-gray-800">🎯 Melhores Locais</h3>
+                </div>
+                <div id="melhores-locais" class="space-y-3">
+                    <!-- Será preenchido via JavaScript -->
+                </div>
+            </div>
 
-                    const leitorArquivo = new FileReader();
-                    leitorArquivo.onload = (e) => {
-                        const imagemBase64 = e.target.result;
-                        
-                        const novaCorreida = {
-                            id: Date.now(),
-                            valor: parseFloat(dadosExtraidos.valor.toFixed(2)),
-                            origem: dadosExtraidos.origem,
-                            destino: dadosExtraidos.destino,
-                            dataHora: new Date().toISOString(),
-                            diaSemana: new Date().getDay(),
-                            hora: new Date().getHours(),
-                            screenshot: imagemBase64,
-                            extraidoPorOCR: true
-                        };
+            <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">⏰</span>
+                    <h3 class="text-lg font-bold text-gray-800">⏰ Melhores Horários</h3>
+                </div>
+                <div id="melhores-horarios" class="space-y-3">
+                    <!-- Será preenchido via JavaScript -->
+                </div>
+            </div>
 
-                        setCorridasCapturadas(prev => [novaCorreida, ...prev]);
-                        setPrintsArmazenados(prev => [
-                            { id: novaCorreida.id, imagem: imagemBase64, dados: dadosExtraidos, dataHora: novaCorreida.dataHora },
-                            ...prev
-                        ]);
+            <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">📊</span>
+                    <h3 class="text-lg font-bold text-gray-800">📅 Melhores Dias</h3>
+                </div>
+                <div id="melhores-dias" class="space-y-3">
+                    <!-- Será preenchido via JavaScript -->
+                </div>
+            </div>
+        </div>
 
-                        alert(`✅ Corrida de R$ ${dadosExtraidos.valor.toFixed(2)} capturada com sucesso!`);
-                    };
-                    
-                    leitorArquivo.readAsDataURL(arquivo);
-                    
-                } catch (error) {
-                    alert('❌ Erro ao processar screenshot');
-                }
-                
-                evento.target.value = '';
-            };
+        <!-- Histórico -->
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-4">📸 Prints Capturados (<span id="count-historico">0</span>)</h3>
+            
+            <div id="historico-vazio" class="text-center py-12">
+                <div class="text-6xl mb-4">📷</div>
+                <p class="text-gray-500 text-lg">Nenhum screenshot processado ainda</p>
+                <p class="text-gray-400">Envie uma imagem de corrida da 99 para começar</p>
+            </div>
 
-            // Análise dos dados
-            const analisarDados = () => {
-                if (corridasCapturadas.length === 0) return;
+            <div id="historico-list" class="space-y-4 hidden">
+                <!-- Será preenchido via JavaScript -->
+            </div>
+        </div>
+    </div>
 
-                const porOrigem = {};
-                const porHora = {};
-                const porDiaSemana = {};
+    <script>
+        // Estado da aplicação
+        let corridasCapturadas = [];
+        let printsArmazenados = [];
+        const filtroValor = 35;
 
-                corridasCapturadas.forEach(corrida => {
-                    if (!porOrigem[corrida.origem]) {
-                        porOrigem[corrida.origem] = { total: 0, count: 0 };
-                    }
-                    porOrigem[corrida.origem].total += corrida.valor;
-                    porOrigem[corrida.origem].count++;
+        // Elementos DOM
+        const uploadInput = document.getElementById('screenshot-input');
+        const uploadText = document.getElementById('upload-text');
+        const loading = document.getElementById('loading');
+        const totalCorridas = document.getElementById('total-corridas');
+        const totalPrints = document.getElementById('total-prints');
+        const ultimoOCR = document.getElementById('ultimo-ocr');
+        const analises = document.getElementById('analises');
+        const historicoVazio = document.getElementById('historico-vazio');
+        const historicoList = document.getElementById('historico-list');
+        const countHistorico = document.getElementById('count-historico');
 
-                    if (!porHora[corrida.hora]) {
-                        porHora[corrida.hora] = { total: 0, count: 0 };
-                    }
-                    porHora[corrida.hora].total += corrida.valor;
-                    porHora[corrida.hora].count++;
+        // Carregar dados salvos
+        function carregarDados() {
+            const corridasSalvas = localStorage.getItem('corridasOCR99');
+            const printsSalvos = localStorage.getItem('printsOCR99');
+            
+            if (corridasSalvas) {
+                corridasCapturadas = JSON.parse(corridasSalvas);
+            }
+            if (printsSalvos) {
+                printsArmazenados = JSON.parse(printsSalvos);
+            }
+            
+            atualizarInterface();
+        }
 
-                    const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-                    const nomeDia = dias[corrida.diaSemana];
-                    if (!porDiaSemana[nomeDia]) {
-                        porDiaSemana[nomeDia] = { total: 0, count: 0 };
-                    }
-                    porDiaSemana[nomeDia].total += corrida.valor;
-                    porDiaSemana[nomeDia].count++;
-                });
+        // Salvar dados
+        function salvarDados() {
+            localStorage.setItem('corridasOCR99', JSON.stringify(corridasCapturadas));
+            localStorage.setItem('printsOCR99', JSON.stringify(printsArmazenados));
+        }
 
-                const calcularRanking = (dados) => {
-                    return Object.entries(dados)
-                        .map(([key, value]) => ({
-                            nome: key,
-                            media: (value.total / value.count).toFixed(2),
-                            quantidade: value.count,
-                            total: value.total.toFixed(2)
-                        }))
-                        .sort((a, b) => parseFloat(b.media) - parseFloat(a.media))
-                        .slice(0, 5);
-                };
+        // Simular OCR
+        async function extrairDadosOCR(arquivo) {
+            const locais = [
+                'Shopping Center Norte', 'Aeroporto Guarulhos', 'Vila Madalena',
+                'Pinheiros', 'Brooklin', 'Moema', 'Jardins', 'Centro',
+                'Morumbi', 'Tatuapé', 'Santo Amaro', 'Liberdade'
+            ];
+            
+            const destinos = [
+                'Aeroporto Congonhas', 'Shopping Villa-Lobos', 'Alphaville',
+                'Santana', 'Ipiranga', 'Vila Olímpia', 'Itaim Bibi',
+                'São Bernardo', 'Santo André', 'Guarulhos Centro'
+            ];
 
-                setAnalises({
-                    melhoresOrigens: calcularRanking(porOrigem),
-                    melhoresHorarios: calcularRanking(porHora),
-                    melhoresDias: calcularRanking(porDiaSemana)
-                });
-            };
-
-            const excluirPrint = (id) => {
-                setCorridasCapturadas(prev => prev.filter(c => c.id !== id));
-                setPrintsArmazenados(prev => prev.filter(p => p.id !== id));
-            };
-
-            return React.createElement('div', {
-                className: "min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4"
-            }, [
-                // Header
-                React.createElement('div', {
-                    key: 'header',
-                    className: "max-w-4xl mx-auto bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-6 mb-6"
-                }, [
-                    React.createElement('div', {
-                        key: 'title',
-                        className: "flex items-center gap-3 mb-6"
-                    }, [
-                        React.createElement('div', {
-                            key: 'icon',
-                            className: "bg-gradient-to-r from-purple-500 to-pink-500 p-3 rounded-full"
-                        }, React.createElement(Camera, { className: "w-8 h-8 text-white" })),
-                        React.createElement('div', { key: 'text' }, [
-                            React.createElement('h1', {
-                                key: 'h1',
-                                className: "text-2xl font-bold text-gray-800"
-                            }, 'Capturador OCR 99'),
-                            React.createElement('p', {
-                                key: 'p',
-                                className: "text-gray-600"
-                            }, 'Screenshot → OCR → Análise Automática')
-                        ])
-                    ]),
-                    
-                    // Upload Area
-                    React.createElement('div', {
-                        key: 'upload',
-                        className: "bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-6 border-2 border-dashed border-purple-300 text-center"
-                    }, [
-                        React.createElement(Camera, {
-                            key: 'camera',
-                            className: "w-16 h-16 text-purple-500 mx-auto mb-4"
-                        }),
-                        React.createElement('h3', {
-                            key: 'h3',
-                            className: "text-xl font-bold text-gray-800 mb-2"
-                        }, 'Envie o Screenshot da Corrida da 99'),
-                        React.createElement('p', {
-                            key: 'desc',
-                            className: "text-gray-600 mb-4"
-                        }, `O app vai ler automaticamente e salvar apenas se for acima de R$ ${filtroValor}`),
-                        React.createElement('label', {
-                            key: 'label',
-                            className: "bg-gradient-to-r from-purple-500 to-pink-500 text-white px-8 py-4 rounded-xl font-bold cursor-pointer hover:from-purple-600 hover:to-pink-600 transition-all inline-flex items-center gap-2"
-                        }, [
-                            React.createElement(Upload, { key: 'upload-icon', className: "w-5 h-5" }),
-                            processandoImagem ? 'Processando OCR...' : 'Selecionar Screenshot',
-                            React.createElement('input', {
-                                key: 'input',
-                                type: 'file',
-                                accept: 'image/*',
-                                onChange: processarScreenshot,
-                                className: 'hidden',
-                                disabled: processandoImagem
-                            })
-                        ]),
-                        
-                        processandoImagem && React.createElement('div', {
-                            key: 'loading',
-                            className: "mt-4"
-                        }, React.createElement('div', {
-                            className: "bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg inline-flex items-center gap-2"
-                        }, [
-                            React.createElement('div', {
-                                key: 'spinner',
-                                className: "animate-spin rounded-full h-4 w-4 border-2 border-yellow-600 border-t-transparent"
-                            }),
-                            'Analisando imagem com OCR...'
-                        ]))
-                    ]),
-                    
-                    // Status
-                    React.createElement('div', {
-                        key: 'status',
-                        className: "grid grid-cols-2 md:grid-cols-4 gap-4 mt-6"
-                    }, [
-                        React.createElement('div', {
-                            key: 'stat1',
-                            className: "bg-green-50 p-4 rounded-xl text-center"
-                        }, [
-                            React.createElement('div', {
-                                key: 'num',
-                                className: "text-2xl font-bold text-green-600"
-                            }, corridasCapturadas.length),
-                            React.createElement('div', {
-                                key: 'label',
-                                className: "text-sm text-gray-600"
-                            }, 'Corridas Capturadas')
-                        ]),
-                        React.createElement('div', {
-                            key: 'stat2',
-                            className: "bg-blue-50 p-4 rounded-xl text-center"
-                        }, [
-                            React.createElement('div', {
-                                key: 'num',
-                                className: "text-2xl font-bold text-blue-600"
-                            }, `R$ ${filtroValor}+`),
-                            React.createElement('div', {
-                                key: 'label',
-                                className: "text-sm text-gray-600"
-                            }, 'Filtro Mínimo')
-                        ]),
-                        React.createElement('div', {
-                            key: 'stat3',
-                            className: "bg-purple-50 p-4 rounded-xl text-center"
-                        }, [
-                            React.createElement('div', {
-                                key: 'num',
-                                className: "text-2xl font-bold text-purple-600"
-                            }, printsArmazenados.length),
-                            React.createElement('div', {
-                                key: 'label',
-                                className: "text-sm text-gray-600"
-                            }, 'Prints Salvos')
-                        ]),
-                        React.createElement('div', {
-                            key: 'stat4',
-                            className: "bg-orange-50 p-4 rounded-xl text-center"
-                        }, [
-                            React.createElement('div', {
-                                key: 'num',
-                                className: "text-2xl font-bold text-orange-600"
-                            }, ultimoProcessamento ? ultimoProcessamento.toLocaleTimeString('pt-BR') : '--:--'),
-                            React.createElement('div', {
-                                key: 'label',
-                                className: "text-sm text-gray-600"
-                            }, 'Último OCR')
-                        ])
-                    ])
-                ]),
-                
-                // Análises
-                analises.melhoresOrigens && React.createElement('div', {
-                    key: 'analises',
-                    className: "max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-6"
-                }, [
-                    // Melhores Locais
-                    React.createElement('div', {
-                        key: 'locais',
-                        className: "bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6"
-                    }, [
-                        React.createElement('div', {
-                            key: 'header',
-                            className: "flex items-center gap-2 mb-4"
-                        }, [
-                            React.createElement(MapPin, { key: 'icon', className: "w-6 h-6 text-green-600" }),
-                            React.createElement('h3', {
-                                key: 'title',
-                                className: "text-lg font-bold text-gray-800"
-                            }, '🎯 Melhores Locais')
-                        ]),
-                        React.createElement('div', {
-                            key: 'list',
-                            className: "space-y-3"
-                        }, analises.melhoresOrigens.map((local, index) =>
-                            React.createElement('div', {
-                                key: local.nome,
-                                className: "flex items-center justify-between p-3 bg-green-50 rounded-lg border-l-4 border-green-500"
-                            }, [
-                                React.createElement('div', { key: 'info' }, [
-                                    React.createElement('div', {
-                                        key: 'nome',
-                                        className: "font-semibold text-gray-800 text-sm"
-                                    }, local.nome),
-                                    React.createElement('div', {
-                                        key: 'qtd',
-                                        className: "text-xs text-gray-600"
-                                    }, `${local.quantidade} corridas`)
-                                ]),
-                                React.createElement('div', {
-                                    key: 'valor',
-                                    className: "text-right"
-                                }, [
-                                    React.createElement('div', {
-                                        key: 'media',
-                                        className: "font-bold text-green-700"
-                                    }, `R$ ${local.media}`),
-                                    React.createElement('div', {
-                                        key: 'label',
-                                        className: "text-xs text-gray-500"
-                                    }, 'média')
-                                ])
-                            ])
-                        ))
-                    ])
-                ]),
-                
-                // Histórico
-                React.createElement('div', {
-                    key: 'historico',
-                    className: "max-w-4xl mx-auto bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6"
-                }, [
-                    React.createElement('h3', {
-                        key: 'title',
-                        className: "text-lg font-bold text-gray-800 mb-4"
-                    }, `📸 Prints Capturados (${corridasCapturadas.length})`),
-                    
-                    corridasCapturadas.length === 0 ?
-                        React.createElement('div', {
-                            key: 'empty',
-                            className: "text-center py-12"
-                        }, [
-                            React.createElement(Camera, {
-                                key: 'icon',
-                                className: "w-16 h-16 text-gray-300 mx-auto mb-4"
-                            }),
-                            React.createElement('p', {
-                                key: 'text1',
-                                className: "text-gray-500 text-lg"
-                            }, 'Nenhum screenshot processado ainda'),
-                            React.createElement('p', {
-                                key: 'text2',
-                                className: "text-gray-400"
-                            }, 'Envie uma imagem de corrida da 99 para começar')
-                        ])
-                    :
-                        React.createElement('div', {
-                            key: 'list',
-                            className: "space-y-4 max-h-96 overflow-y-auto"
-                        }, corridasCapturadas.slice(0, 10).map((corrida) =>
-                            React.createElement('div', {
-                                key: corrida.id,
-                                className: "border border-gray-200 rounded-xl p-4"
-                            }, [
-                                React.createElement('div', {
-                                    key: 'header',
-                                    className: "flex justify-between items-start mb-3"
-                                }, [
-                                    React.createElement('div', {
-                                        key: 'badges',
-                                        className: "flex items-center gap-2"
-                                    }, [
-                                        React.createElement('div', {
-                                            key: 'valor',
-                                            className: "bg-gradient-to-r from-green-500 to-blue-500 text-white px-3 py-1 rounded-full font-bold text-sm"
-                                        }, `R$ ${corrida.valor.toFixed(2)}`),
-                                        React.createElement('div', {
-                                            key: 'data',
-                                            className: "text-xs text-gray-500"
-                                        }, new Date(corrida.dataHora).toLocaleString('pt-BR')),
-                                        React.createElement('div', {
-                                            key: 'ocr',
-                                            className: "bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs"
-                                        }, 'OCR')
-                                    ]),
-                                    React.createElement('button', {
-                                        key: 'delete',
-                                        onClick: () => excluirPrint(corrida.id),
-                                        className: "text-red-500 hover:text-red-700"
-                                    }, React.createElement(Trash2, { className: "w-5 h-5" }))
-                                ]),
-                                React.createElement('div', {
-                                    key: 'info',
-                                    className: "space-y-2"
-                                }, [
-                                    React.createElement('div', {
-                                        key: 'origem',
-                                        className: "flex items-center gap-2"
-                                    }, [
-                                        React.createElement(MapPin, { className: "w-4 h-4 text-green-600" }),
-                                        React.createElement('span', { className: "font-medium text-sm" }, 'De:'),
-                                        React.createElement('span', { className: "text-gray-600 text-sm" }, corrida.origem)
-                                    ]),
-                                    React.createElement('div', {
-                                        key: 'destino',
-                                        className: "flex items-center gap-2"
-                                    }, [
-                                        React.createElement(MapPin, { className: "w-4 h-4 text-red-600" }),
-                                        React.createElement('span', { className: "font-medium text-sm" }, 'Para:'),
-                                        React.createElement('span', { className: "text-gray-600 text-sm" }, corrida.destino)
-                                    ])
-                                ])
-                            ])
-                        ))
-                ])
-            ]);
-        };
-
-        // Render
-        ReactDOM.render(React.createElement(CapturadorApp), document.getElementById('root'));
-        
-        // PWA Registration
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(registration => console.log('SW registered'))
-                    .catch(error => console.log('SW failed'));
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    resolve({
+                        valor: Math.random() * 50 + 25,
+                        origem: locais[Math.floor(Math.random() * locais.length)],
+                        destino: destinos[Math.floor(Math.random() * destinos.length)]
+                    });
+                }, 2000);
             });
         }
+
+        // Processar screenshot
+        async function processarScreenshot(arquivo) {
+            if (!arquivo) return;
+
+            loading.classList.remove('hidden');
+            uploadText.textContent = 'Processando OCR...';
+
+            try {
+                const dados = await extrairDadosOCR(arquivo);
+                
+                if (dados.valor < filtroValor) {
+                    alert(`❌ Corrida de R$ ${dados.valor.toFixed(2)} ignorada (abaixo de R$ ${filtroValor})`);
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const novaCorreida = {
+                        id: Date.now(),
+                        valor: parseFloat(dados.valor.toFixed(2)),
+                        origem: dados.origem,
+                        destino: dados.destino,
+                        dataHora: new Date().toISOString(),
+                        diaSemana: new Date().getDay(),
+                        hora: new Date().getHours(),
+                        screenshot: e.target.result
+                    };
+
+                    corridasCapturadas.unshift(novaCorreida);
+                    printsArmazenados.unshift({
+                        id: novaCorreida.id,
+                        imagem: e.target.result,
+                        dados: dados,
+                        dataHora: novaCorreida.dataHora
+                    });
+
+                    salvarDados();
+                    atualizarInterface();
+                    
+                    alert(`✅ Corrida de R$ ${dados.valor.toFixed(2)} capturada com sucesso!`);
+                };
+                
+                reader.readAsDataURL(arquivo);
+
+            } catch (error) {
+                alert('❌ Erro ao processar screenshot');
+                console.error(error);
+            } finally {
+                loading.classList.add('hidden');
+                uploadText.textContent = 'Selecionar Screenshot';
+                uploadInput.value = '';
+            }
+        }
+
+        // Atualizar interface
+        function atualizarInterface() {
+            totalCorridas.textContent = corridasCapturadas.length;
+            totalPrints.textContent = printsArmazenados.length;
+            countHistorico.textContent = corridasCapturadas.length;
+            ultimoOCR.textContent = corridasCapturadas.length > 0 ? 
+                new Date(corridasCapturadas[0].dataHora).toLocaleTimeString('pt-BR') : '--:--';
+
+            // Mostrar/ocultar histórico
+            if (corridasCapturadas.length === 0) {
+                historicoVazio.classList.remove('hidden');
+                historicoList.classList.add('hidden');
+                analises.classList.add('hidden');
+            } else {
+                historicoVazio.classList.add('hidden');
+                historicoList.classList.remove('hidden');
+                analises.classList.remove('hidden');
+                
+                renderizarHistorico();
+                renderizarAnalises();
+            }
+        }
+
+        // Renderizar histórico
+        function renderizarHistorico() {
+            historicoList.innerHTML = corridasCapturadas.slice(0, 10).map(corrida => `
+                <div class="border border-gray-200 rounded-xl p-4">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <div class="bg-gradient-to-r from-green-500 to-blue-500 text-white px-3 py-1 rounded-full font-bold text-sm">
+                                R$ ${corrida.valor.toFixed(2)}
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                ${new Date(corrida.dataHora).toLocaleString('pt-BR')}
+                            </div>
+                            <div class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs">
+                                OCR
+                            </div>
+                            <div class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                                R$ 35+
+                            </div>
+                        </div>
+                        <button onclick="excluirCorreida(${corrida.id})" class="text-red-500 hover:text-red-700">
+                            🗑️
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2 text-sm">
+                                <span class="text-green-600">📍</span>
+                                <span class="font-medium">De:</span>
+                                <span class="text-gray-600">${corrida.origem}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-sm">
+                                <span class="text-red-600">📍</span>
+                                <span class="font-medium">Para:</span>
+                                <span class="text-gray-600">${corrida.destino}</span>
+                            </div>
+                        </div>
+                        ${corrida.screenshot ? `
+                        <div class="flex justify-end">
+                            <img src="${corrida.screenshot}" alt="Screenshot" 
+                                 class="w-20 h-20 object-cover rounded-lg border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
+                                 onclick="window.open('${corrida.screenshot}', '_blank')">
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Renderizar análises
+        function renderizarAnalises() {
+            const porOrigem = {};
+            const porHora = {};
+            const porDia = {};
+
+            corridasCapturadas.forEach(corrida => {
+                // Por origem
+                if (!porOrigem[corrida.origem]) {
+                    porOrigem[corrida.origem] = { total: 0, count: 0 };
+                }
+                porOrigem[corrida.origem].total += corrida.valor;
+                porOrigem[corrida.origem].count++;
+
+                // Por hora
+                if (!porHora[corrida.hora]) {
+                    porHora[corrida.hora] = { total: 0, count: 0 };
+                }
+                porHora[corrida.hora].total += corrida.valor;
+                porHora[corrida.hora].count++;
+
+                // Por dia
+                const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+                const nomeDia = dias[corrida.diaSemana];
+                if (!porDia[nomeDia]) {
+                    porDia[nomeDia] = { total: 0, count: 0 };
+                }
+                porDia[nomeDia].total += corrida.valor;
+                porDia[nomeDia].count++;
+            });
+
+            const criarRanking = (dados) => {
+                return Object.entries(dados)
+                    .map(([key, value]) => ({
+                        nome: key,
+                        media: (value.total / value.count).toFixed(2),
+                        quantidade: value.count
+                    }))
+                    .sort((a, b) => parseFloat(b.media) - parseFloat(a.media))
+                    .slice(0, 5);
+            };
+
+            const renderizarCard = (items, containerId) => {
+                document.getElementById(containerId).innerHTML = items.map(item => `
+                    <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg border-l-4 border-green-500">
+                        <div>
+                            <div class="font-semibold text-gray-800 text-sm">${item.nome}</div>
+                            <div class="text-xs text-gray-600">${item.quantidade} corridas</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-bold text-green-700">R$ ${item.media}</div>
+                            <div class="text-xs text-gray-500">média</div>
+                        </div>
+                    </div>
+                `).join('');
+            };
+
+            renderizarCard(criarRanking(porOrigem), 'melhores-locais');
+            renderizarCard(criarRanking(porHora).map(h => ({...h, nome: h.nome + ':00h'})), 'melhores-horarios');
+            renderizarCard(criarRanking(porDia), 'melhores-dias');
+        }
+
+        // Excluir corrida
+        function excluirCorreida(id) {
+            if (confirm('Deseja excluir esta corrida?')) {
+                corridasCapturadas = corridasCapturadas.filter(c => c.id !== id);
+                printsArmazenados = printsArmazenados.filter(p => p.id !== id);
+                salvarDados();
+                atualizarInterface();
+            }
+        }
+
+        // Event listeners
+        uploadInput.addEventListener('change', (e) => {
+            const arquivo = e.target.files[0];
+            if (arquivo) {
+                processarScreenshot(arquivo);
+            }
+        });
+
+        // Inicializar
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarDados();
+            
+            // PWA Installation
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(() => console.log('Service Worker registrado'))
+                    .catch(() => console.log('Service Worker falhou'));
+            }
+        });
+
+        // Teste inicial (remover em produção)
+        console.log('✅ App carregado com sucesso!');
     </script>
+
 </body>
 </html>
