@@ -26,6 +26,21 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .card-corrida {
+            transition: all 0.3s ease;
+        }
+        .card-corrida:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .info-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 min-h-screen">
@@ -60,6 +75,14 @@
                         <div class="loading rounded-full h-4 w-4 border-2 border-yellow-600 border-t-transparent"></div>
                         <span id="ocr-progress-text">Analisando imagem com OCR...</span>
                     </div>
+                </div>
+
+                <!-- Debug OCR Text -->
+                <div id="debug-ocr" class="mt-4 hidden">
+                    <details class="bg-gray-100 p-3 rounded-lg text-left">
+                        <summary class="cursor-pointer text-sm font-medium text-gray-700">Ver texto extraído pelo OCR</summary>
+                        <pre id="ocr-text" class="mt-2 text-xs text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto"></pre>
+                    </details>
                 </div>
             </div>
 
@@ -119,7 +142,12 @@
 
         <!-- Histórico -->
         <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
-            <h3 class="text-lg font-bold text-gray-800 mb-4">📸 Prints Capturados (<span id="count-historico">0</span>)</h3>
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">📸 Prints Capturados (<span id="count-historico">0</span>)</h3>
+                <button id="limpar-tudo" class="text-sm text-red-500 hover:text-red-700 px-3 py-1 rounded-lg bg-red-50">
+                    🗑️ Limpar tudo
+                </button>
+            </div>
             
             <div id="historico-vazio" class="text-center py-12">
                 <div class="text-6xl mb-4">📷</div>
@@ -151,6 +179,9 @@
         const historicoVazio = document.getElementById('historico-vazio');
         const historicoList = document.getElementById('historico-list');
         const countHistorico = document.getElementById('count-historico');
+        const limparTudoBtn = document.getElementById('limpar-tudo');
+        const debugOcr = document.getElementById('debug-ocr');
+        const ocrText = document.getElementById('ocr-text');
 
         // Carregar dados salvos
         function carregarDados() {
@@ -173,75 +204,207 @@
             localStorage.setItem('printsOCR99', JSON.stringify(printsArmazenados));
         }
 
-        // Função para extrair dados do texto OCR - VERSÃO ATUALIZADA PARA OS DOIS FORMATOS
+        // FUNÇÃO MELHORADA DE EXTRAÇÃO - VERSÃO CORRIGIDA
         function extrairDadosCorrida(textoOCR) {
-            // Padrão para valor (formato 1: R$62,90 / formato 2: R$49,35)
-            const padraoValor1 = /(?:valor|total|r\$)\s*[\:\-]?\s*(\d+[\.,]\d{2})/i;
-            const padraoValor2 = /^\s*R\$\s*(\d+[\.,]\d{2})\s*$/im;
-            const valorMatch = textoOCR.match(padraoValor1) || textoOCR.match(padraoValor2);
-            
-            // Converter valor para número
-            let valor = null;
-            if (valorMatch) {
-                valor = parseFloat(valorMatch[1].replace(',', '.'));
-            }
+            console.log("=== TEXTO OCR COMPLETO ===");
+            console.log(textoOCR);
+            console.log("=========================");
 
-            // Padrões para endereços nos dois formatos
-            let origem = "Origem não identificada";
-            let destino = "Destino não identificado";
+            // Normalizar o texto
+            let texto = textoOCR.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
             
-            // Tenta identificar o formato da tela cheia primeiro
-            const padraoTelaCheiaOrigem = /(?:embarque|peguei em|sai de|de)\s*[\:\-]?\s*(.+?)\s*(?=para|até|cheguei em|fui para|;|\n|$)/i;
-            const padraoTelaCheiaDestino = /(?:para|até|cheguei em|fui para|destino)\s*[\:\-]?\s*(.+?)\s*(?=valor|total|r\$|;|\n|$)/i;
+            // 1. EXTRAIR VALOR - MÚLTIPLOS PADRÕES MELHORADOS
+            let valor = null;
             
-            const origemTelaCheia = textoOCR.match(padraoTelaCheiaOrigem);
-            const destinoTelaCheia = textoOCR.match(padraoTelaCheiaDestino);
-            
-            if (origemTelaCheia && destinoTelaCheia) {
-                origem = origemTelaCheia[1].trim();
-                destino = destinoTelaCheia[1].trim();
-            } else {
-                // Tenta identificar o formato do radar
-                const linhas = textoOCR.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                const enderecos = [];
-                
-                // Procura por linhas que parecem endereços
-                for (let i = 0; i < linhas.length; i++) {
-                    const linha = linhas[i];
-                    // Ignora linhas com valores, horários ou muito curtas
-                    if (!linha.match(/(r\$|\d+[\.,]\d{2}|\d+ min|\d+[,.]\d+ km)/i) && 
-                        linha.length > 15 && 
-                        !linha.match(/^(solicitações|escolha uma|pop expresso|tarifa mais alta|isso é tudo)/i)) {
-                        enderecos.push(linha);
+            // Padrão 1: R$ seguido de número (mais comum)
+            const valorPatterns = [
+                /R\$\s*(\d+(?:[.,]\d{2})?)/gi,
+                /rs\s*(\d+(?:[.,]\d{2})?)/gi,
+                /r\s+(\d+(?:[.,]\d{2})?)/gi,
+                /(\d+,\d{2})\s*(?=.*(?:expresso|pop|km))/gi,
+                /(\d+\.\d{2})\s*(?=.*(?:expresso|pop|km))/gi
+            ];
+
+            for (const pattern of valorPatterns) {
+                const matches = [...textoOCR.matchAll(pattern)];
+                if (matches.length > 0) {
+                    // Pegar o maior valor encontrado (provavelmente o da corrida)
+                    const valores = matches.map(m => parseFloat(m[1].replace(',', '.')))
+                        .filter(v => v >= 10 && v <= 200); // Valores realistas para corridas
+                    
+                    if (valores.length > 0) {
+                        valor = Math.max(...valores);
+                        console.log(`Valor encontrado: R$ ${valor} (padrão: ${pattern})`);
+                        break;
                     }
                 }
-                
-                // Se encontrou pelo menos 2 endereços, assume que são origem e destino
-                if (enderecos.length >= 2) {
-                    origem = enderecos[0];
-                    destino = enderecos[1];
-                } else if (enderecos.length === 1) {
-                    origem = enderecos[0];
-                }
-                
-                // Tenta extrair endereços entre parênteses (formato radar)
-                const padraoParenteses = /\(([^)]+)\)/g;
-                const matches = [...textoOCR.matchAll(padraoParenteses)];
-                if (matches.length >= 2) {
-                    origem = matches[0][1].trim();
-                    destino = matches[1][1].trim();
+            }
+
+            // Fallback: buscar números que parecem valores de corrida
+            if (!valor) {
+                const numerosSoltos = textoOCR.match(/\b(\d{2},\d{2}|\d{2}\.\d{2})\b/g);
+                if (numerosSoltos) {
+                    const possiveisValores = numerosSoltos
+                        .map(n => parseFloat(n.replace(',', '.')))
+                        .filter(v => v >= 15 && v <= 150);
+                    
+                    if (possiveisValores.length > 0) {
+                        valor = Math.max(...possiveisValores);
+                        console.log(`Valor fallback: R$ ${valor}`);
+                    }
                 }
             }
+
+            // 2. EXTRAIR AVALIAÇÃO E CORRIDAS DO PASSAGEIRO
+            let avaliacao = null;
+            let corridasPassageiro = null;
             
-            // Limpeza dos endereços
-            origem = origem.replace(/^\W+|\W+$/g, ''); // Remove caracteres especiais no início/fim
-            destino = destino.replace(/^\W+|\W+$/g, '');
+            const avaliacaoPatterns = [
+                /(\d+[.,]\d+)\s*[·•\-]\s*(\d+)\s*corridas?/i,
+                /(\d+[.,]\d+)\s*(\d+)\s*corridas?/i,
+                /[★⭐]\s*(\d+[.,]\d+).*?(\d+)\s*corridas?/i
+            ];
+
+            for (const pattern of avaliacaoPatterns) {
+                const match = textoOCR.match(pattern);
+                if (match) {
+                    avaliacao = match[1].replace(',', '.');
+                    corridasPassageiro = match[2] + ' corridas';
+                    console.log(`Avaliação: ${avaliacao}, Corridas: ${corridasPassageiro}`);
+                    break;
+                }
+            }
+
+            // 3. EXTRAIR ROTAS COM MELHOR PRECISÃO
+            const rotas = [];
             
-            return {
+            // Padrão melhorado para capturar rotas com endereços completos
+            const rotaPatterns = [
+                /(\d+)\s*min\s*\(([0-9.,]+)\s*km\)\s*([^(\n\r]+?)(?=\s*\d+\s*min|\s*$)/gi,
+                /([🔄⬆⬇↑↓🔵🟢])\s*(\d+)\s*min\s*\(([0-9.,]+)\s*km\)\s*([^(\n\r]+?)(?=\s*[🔄⬆⬇↑↓🔵🟢]|\s*$)/gi,
+                /(\d+min)\s*\(([0-9.,]+km)\)\s*([^\n\r]+)/gi
+            ];
+
+            for (const pattern of rotaPatterns) {
+                let match;
+                while ((match = pattern.exec(textoOCR)) !== null) {
+                    let endereco = '';
+                    let tempo = '';
+                    let distancia = '';
+
+                    if (match.length === 4 && !isNaN(match[1])) {
+                        // Padrão: tempo min (distancia km) endereço
+                        tempo = match[1] + 'min';
+                        distancia = match[2].replace(',', '.') + 'km';
+                        endereco = match[3];
+                    } else if (match.length === 5) {
+                        // Padrão com ícone
+                        tempo = match[2] + 'min';
+                        distancia = match[3].replace(',', '.') + 'km';
+                        endereco = match[4];
+                    } else if (match.length === 4) {
+                        // Padrão simples
+                        tempo = match[1];
+                        distancia = match[2];
+                        endereco = match[3];
+                    }
+
+                    // Limpar o endereço
+                    endereco = endereco
+                        .replace(/^\W+|\W+$/g, '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/\d+\s*parada\s*\(\s*s?\s*\)/gi, '')
+                        .trim();
+
+                    if (endereco.length > 5 && tempo && distancia) {
+                        rotas.push({
+                            tempo: tempo,
+                            distancia: distancia,
+                            endereco: endereco
+                        });
+                        console.log(`Rota encontrada: ${tempo} ${distancia} - ${endereco}`);
+                    }
+                }
+            }
+
+            // 4. DETERMINAR ORIGEM E DESTINO
+            let origem = "Origem não identificada";
+            let destino = "Destino não identificado";
+            let distanciaPegar = null;
+            let distanciaCorrida = null;
+            let tempoPegar = null;
+            let tempoCorrida = null;
+
+            console.log(`Total de rotas encontradas: ${rotas.length}`);
+
+            if (rotas.length >= 2) {
+                // Primeira rota: motorista até o passageiro
+                origem = rotas[0].endereco;
+                distanciaPegar = rotas[0].distancia;
+                tempoPegar = rotas[0].tempo;
+                
+                // Última rota: viagem do passageiro
+                destino = rotas[rotas.length - 1].endereco;
+                distanciaCorrida = rotas[rotas.length - 1].distancia;
+                tempoCorrida = rotas[rotas.length - 1].tempo;
+                
+                console.log(`Múltiplas rotas - Origem: ${origem}, Destino: ${destino}`);
+            } else if (rotas.length === 1) {
+                // Apenas uma rota: consideramos como viagem do passageiro
+                destino = rotas[0].endereco;
+                distanciaCorrida = rotas[0].distancia;
+                tempoCorrida = rotas[0].tempo;
+                origem = "Embarque próximo";
+                
+                console.log(`Uma rota - Destino: ${destino}`);
+            } else {
+                // Fallback: tentar extrair endereços por outros métodos
+                const enderecoPatterns = [
+                    /(?:rua|av|avenida|estrada|rod|rodovia)\s+[^,\n\r]+/gi,
+                    /[A-Z][a-záàâãéèêíïóôõöúçñ\s]+(?:,\s*\d+)/gi
+                ];
+
+                for (const pattern of enderecoPatterns) {
+                    const enderecos = textoOCR.match(pattern);
+                    if (enderecos && enderecos.length >= 1) {
+                        if (origem === "Origem não identificada") {
+                            origem = enderecos[0].trim();
+                        }
+                        if (enderecos.length >= 2 && destino === "Destino não identificado") {
+                            destino = enderecos[1].trim();
+                        }
+                    }
+                }
+            }
+
+            // 5. LIMPEZA FINAL DOS CAMPOS
+            origem = origem.replace(/^\W+|\W+$/g, '').trim();
+            destino = destino.replace(/^\W+|\W+$/g, '').trim();
+            
+            // Truncar endereços muito longos
+            if (origem.length > 50) origem = origem.substring(0, 47) + "...";
+            if (destino.length > 50) destino = destino.substring(0, 47) + "...";
+
+            const resultado = {
                 valor: valor,
+                avaliacao: avaliacao,
+                corridasPassageiro: corridasPassageiro,
+                tempoPegar: tempoPegar,
+                distanciaPegar: distanciaPegar,
+                tempoCorrida: tempoCorrida,
+                distanciaCorrida: distanciaCorrida,
                 origem: origem,
-                destino: destino
+                destino: destino,
+                dataHora: new Date().toISOString(),
+                diaSemana: new Date().getDay(),
+                hora: new Date().getHours()
             };
+
+            console.log("=== RESULTADO FINAL ===");
+            console.log(resultado);
+            console.log("======================");
+
+            return resultado;
         }
 
         // Processar screenshot com OCR real
@@ -249,6 +412,7 @@
             if (!arquivo) return;
 
             loading.classList.remove('hidden');
+            debugOcr.classList.add('hidden');
             progressText.textContent = "Analisando imagem com OCR...";
             uploadText.textContent = 'Processando...';
 
@@ -268,10 +432,14 @@
 
                 console.log("Texto extraído pelo OCR:", text);
                 
+                // Mostrar texto do OCR para debug
+                ocrText.textContent = text;
+                debugOcr.classList.remove('hidden');
+                
                 const dados = extrairDadosCorrida(text);
                 
                 if (!dados.valor) {
-                    alert("❌ Não foi possível identificar o valor da corrida");
+                    alert("❌ Não foi possível identificar o valor da corrida. Verifique se é uma tela de corrida da 99 válida.");
                     return;
                 }
 
@@ -285,11 +453,17 @@
                     const novaCorrida = {
                         id: Date.now(),
                         valor: dados.valor,
+                        avaliacao: dados.avaliacao,
+                        corridasPassageiro: dados.corridasPassageiro,
+                        tempoPegar: dados.tempoPegar,
+                        distanciaPegar: dados.distanciaPegar,
+                        tempoCorrida: dados.tempoCorrida,
+                        distanciaCorrida: dados.distanciaCorrida,
                         origem: dados.origem,
                         destino: dados.destino,
-                        dataHora: new Date().toISOString(),
-                        diaSemana: new Date().getDay(),
-                        hora: new Date().getHours(),
+                        dataHora: dados.dataHora,
+                        diaSemana: dados.diaSemana,
+                        hora: dados.hora,
                         screenshot: e.target.result
                     };
 
@@ -304,13 +478,13 @@
                     salvarDados();
                     atualizarInterface();
                     
-                    alert(`✅ Corrida de R$ ${dados.valor.toFixed(2)} capturada com sucesso!\nDe: ${dados.origem}\nPara: ${dados.destino}`);
+                    alert(`✅ Corrida de R$ ${dados.valor.toFixed(2)} capturada com sucesso!\n\nOrigem: ${dados.origem}\nDestino: ${dados.destino}${dados.tempoCorrida ? '\nTempo: ' + dados.tempoCorrida : ''}${dados.distanciaCorrida ? '\nDistância: ' + dados.distanciaCorrida : ''}`);
                 };
                 
                 reader.readAsDataURL(arquivo);
 
             } catch (error) {
-                alert('❌ Erro ao processar screenshot');
+                alert('❌ Erro ao processar screenshot. Tente novamente com uma imagem mais nítida.');
                 console.error("Erro no OCR:", error);
             } finally {
                 loading.classList.add('hidden');
@@ -319,7 +493,7 @@
             }
         }
 
-        // Atualizar interface
+        // Atualizar a interface
         function atualizarInterface() {
             totalCorridas.textContent = corridasCapturadas.length;
             totalPrints.textContent = printsArmazenados.length;
@@ -327,7 +501,6 @@
             ultimoOCR.textContent = corridasCapturadas.length > 0 ? 
                 new Date(corridasCapturadas[0].dataHora).toLocaleTimeString('pt-BR') : '--:--';
 
-            // Mostrar/ocultar histórico
             if (corridasCapturadas.length === 0) {
                 historicoVazio.classList.remove('hidden');
                 historicoList.classList.add('hidden');
@@ -336,53 +509,75 @@
                 historicoVazio.classList.add('hidden');
                 historicoList.classList.remove('hidden');
                 analises.classList.remove('hidden');
-                
                 renderizarHistorico();
                 renderizarAnalises();
             }
         }
 
-        // Renderizar histórico
+        // Renderizar histórico de corridas
         function renderizarHistorico() {
             historicoList.innerHTML = corridasCapturadas.slice(0, 10).map(corrida => `
-                <div class="border border-gray-200 rounded-xl p-4">
+                <div class="card-corrida border border-gray-200 rounded-xl p-4 bg-white">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <div class="bg-gradient-to-r from-green-500 to-blue-500 text-white px-3 py-1 rounded-full font-bold text-sm">
+                            <div class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1 rounded-full font-bold text-sm">
                                 R$ ${corrida.valor.toFixed(2)}
                             </div>
                             <div class="text-xs text-gray-500">
                                 ${new Date(corrida.dataHora).toLocaleString('pt-BR')}
                             </div>
-                            <div class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs">
-                                OCR
+                            ${corrida.avaliacao ? `
+                            <div class="info-badge bg-yellow-100 text-yellow-800">
+                                ⭐ ${corrida.avaliacao} ${corrida.corridasPassageiro ? '('+corrida.corridasPassageiro+')' : ''}
                             </div>
-                            <div class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
-                                R$ 35+
+                            ` : ''}
+                            ${corrida.tempoCorrida ? `
+                            <div class="info-badge bg-blue-100 text-blue-800">
+                                ⏱️ ${corrida.tempoCorrida}
                             </div>
+                            ` : ''}
+                            ${corrida.distanciaCorrida ? `
+                            <div class="info-badge bg-green-100 text-green-800">
+                                📏 ${corrida.distanciaCorrida}
+                            </div>
+                            ` : ''}
                         </div>
                         <button onclick="excluirCorrida(${corrida.id})" class="text-red-500 hover:text-red-700">
                             🗑️
                         </button>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="space-y-2">
-                            <div class="flex items-center gap-2 text-sm">
-                                <span class="text-green-600">📍</span>
-                                <span class="font-medium">De:</span>
-                                <span class="text-gray-600">${corrida.origem}</span>
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <div class="flex items-start gap-2 text-sm">
+                                    <span class="text-green-600 mt-1">📍</span>
+                                    <div>
+                                        <div class="font-medium">Origem:</div>
+                                        <div class="text-gray-600">${corrida.origem}</div>
+                                    </div>
+                                </div>
+                                <div class="flex items-start gap-2 text-sm">
+                                    <span class="text-red-600 mt-1">📍</span>
+                                    <div>
+                                        <div class="font-medium">Destino:</div>
+                                        <div class="text-gray-600">${corrida.destino}</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="flex items-center gap-2 text-sm">
-                                <span class="text-red-600">📍</span>
-                                <span class="font-medium">Para:</span>
-                                <span class="text-gray-600">${corrida.destino}</span>
+                            ${corrida.screenshot ? `
+                            <div class="flex justify-end">
+                                <img src="${corrida.screenshot}" alt="Screenshot" 
+                                     class="w-24 h-24 object-cover rounded-lg border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
+                                     onclick="window.open('${corrida.screenshot}', '_blank')">
                             </div>
+                            ` : ''}
                         </div>
-                        ${corrida.screenshot ? `
-                        <div class="flex justify-end">
-                            <img src="${corrida.screenshot}" alt="Screenshot" 
-                                 class="w-20 h-20 object-cover rounded-lg border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
-                                 onclick="window.open('${corrida.screenshot}', '_blank')">
+                        
+                        ${corrida.distanciaPegar ? `
+                        <div class="flex items-center gap-2 text-sm bg-indigo-50 p-3 rounded-lg">
+                            <span class="text-indigo-600">🚗</span>
+                            <span class="font-medium">Distância para pegar PS:</span>
+                            <span class="text-gray-600">${corrida.distanciaPegar} ${corrida.tempoPegar ? '('+corrida.tempoPegar+')' : ''}</span>
                         </div>
                         ` : ''}
                     </div>
@@ -390,73 +585,90 @@
             `).join('');
         }
 
-        // Renderizar análises
+        // Renderizar análises (estatísticas)
         function renderizarAnalises() {
+            const porDestino = {};
             const porOrigem = {};
             const porHora = {};
             const porDia = {};
 
             corridasCapturadas.forEach(corrida => {
-                // Por origem
-                if (!porOrigem[corrida.origem]) {
-                    porOrigem[corrida.origem] = { total: 0, count: 0 };
-                }
-                porOrigem[corrida.origem].total += corrida.valor;
-                porOrigem[corrida.origem].count++;
+                const destinoKey = corrida.destino || "Sem destino";
+                const origemKey = corrida.origem || "Sem origem";
+                
+                // Estatísticas por destino
+                if (!porDestino[destinoKey]) porDestino[destinoKey] = { total: 0, count: 0 };
+                porDestino[destinoKey].total += corrida.valor;
+                porDestino[destinoKey].count++;
+                
+                // Estatísticas por origem
+                if (!porOrigem[origemKey]) porOrigem[origemKey] = { total: 0, count: 0 };
+                porOrigem[origemKey].total += corrida.valor;
+                porOrigem[origemKey].count++;
 
-                // Por hora
-                if (!porHora[corrida.hora]) {
-                    porHora[corrida.hora] = { total: 0, count: 0 };
-                }
+                // Estatísticas por hora
+                if (!porHora[corrida.hora]) porHora[corrida.hora] = { total: 0, count: 0 };
                 porHora[corrida.hora].total += corrida.valor;
                 porHora[corrida.hora].count++;
 
-                // Por dia
+                // Estatísticas por dia
                 const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
                 const nomeDia = dias[corrida.diaSemana];
-                if (!porDia[nomeDia]) {
-                    porDia[nomeDia] = { total: 0, count: 0 };
-                }
+                if (!porDia[nomeDia]) porDia[nomeDia] = { total: 0, count: 0 };
                 porDia[nomeDia].total += corrida.valor;
                 porDia[nomeDia].count++;
             });
 
-            const criarRanking = (dados) => {
-                return Object.entries(dados)
-                    .map(([key, value]) => ({
-                        nome: key,
-                        media: (value.total / value.count).toFixed(2),
-                        quantidade: value.count
-                    }))
-                    .sort((a, b) => parseFloat(b.media) - parseFloat(a.media))
-                    .slice(0, 5);
-            };
+            const criarRanking = (dados) => Object.entries(dados)
+                .map(([key, value]) => ({
+                    nome: key,
+                    media: (value.total / value.count).toFixed(2),
+                    quantidade: value.count
+                }))
+                .sort((a, b) => parseFloat(b.media) - parseFloat(a.media))
+                .slice(0, 5);
 
             const renderizarCard = (items, containerId) => {
-                document.getElementById(containerId).innerHTML = items.map(item => `
-                    <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg border-l-4 border-green-500">
-                        <div>
-                            <div class="font-semibold text-gray-800 text-sm">${item.nome}</div>
+                const container = document.getElementById(containerId);
+                if (items.length === 0) {
+                    container.innerHTML = '<div class="text-center py-4 text-gray-500">Sem dados suficientes</div>';
+                    return;
+                }
+                
+                container.innerHTML = items.map(item => `
+                    <div class="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-indigo-500 mb-2">
+                        <div class="w-3/4">
+                            <div class="font-semibold text-gray-800 text-sm truncate">${item.nome}</div>
                             <div class="text-xs text-gray-600">${item.quantidade} corridas</div>
                         </div>
-                        <div class="text-right">
-                            <div class="font-bold text-green-700">R$ ${item.media}</div>
+                        <div class="text-right w-1/4">
+                            <div class="font-bold text-indigo-700">R$ ${item.media}</div>
                             <div class="text-xs text-gray-500">média</div>
                         </div>
                     </div>
                 `).join('');
             };
 
-            renderizarCard(criarRanking(porOrigem), 'melhores-locais');
+            renderizarCard(criarRanking(porDestino), 'melhores-locais');
             renderizarCard(criarRanking(porHora).map(h => ({...h, nome: h.nome + ':00h'})), 'melhores-horarios');
             renderizarCard(criarRanking(porDia), 'melhores-dias');
         }
 
-        // Excluir corrida
+        // Excluir uma corrida
         function excluirCorrida(id) {
             if (confirm('Deseja excluir esta corrida?')) {
                 corridasCapturadas = corridasCapturadas.filter(c => c.id !== id);
                 printsArmazenados = printsArmazenados.filter(p => p.id !== id);
+                salvarDados();
+                atualizarInterface();
+            }
+        }
+
+        // Limpar todos os dados
+        function limparTudo() {
+            if (confirm('Deseja realmente excluir TODOS os dados?')) {
+                corridasCapturadas = [];
+                printsArmazenados = [];
                 salvarDados();
                 atualizarInterface();
             }
@@ -469,6 +681,8 @@
                 processarScreenshot(arquivo);
             }
         });
+        
+        limparTudoBtn.addEventListener('click', limparTudo);
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', () => {
