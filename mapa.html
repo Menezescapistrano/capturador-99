@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Origens - Capturador 99</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6366f1">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Capturador 99">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        .mapa-container {
+            position: relative;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        
+        .mapa-grid {
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        
+        .local-pin {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            z-index: 10;
+        }
+        
+        .local-pin:hover {
+            transform: translate(-50%, -50%) scale(1.2);
+            z-index: 20;
+        }
+        
+        .pin-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border-radius: 50% 50% 50% 0;
+            position: relative;
+            transform: rotate(-45deg);
+            border: 2px solid white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        .pin-icon::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .pin-label {
+            position: absolute;
+            top: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            white-space: nowrap;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        
+        .local-pin:hover .pin-label {
+            opacity: 1;
+        }
+        
+        .zona-label {
+            position: absolute;
+            color: rgba(255,255,255,0.7);
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        
+        .legenda-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .legenda-cor {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .stats-card {
+            transition: all 0.3s ease;
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 min-h-screen">
+    
+    <!-- Header -->
+    <div class="max-w-7xl mx-auto p-4">
+        <!-- Navegação -->
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 p-2 rounded-full">
+                        <div class="w-6 h-6 text-white text-xl">🗺️</div>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-800">Mapa de Origens</h1>
+                        <p class="text-sm text-gray-600">Visualize os locais onde você mais pega passageiros</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="voltarPrincipal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition-all">
+                        ← Voltar
+                    </button>
+                    <button onclick="atualizarMapa()" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                        🔄 Atualizar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Estatísticas Rápidas -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="stats-card bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-green-600" id="total-locais">0</div>
+                <div class="text-sm text-gray-600">Locais Únicos</div>
+            </div>
+            <div class="stats-card bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-blue-600" id="total-corridas-mapa">0</div>
+                <div class="text-sm text-gray-600">Total Corridas</div>
+            </div>
+            <div class="stats-card bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-purple-600" id="local-mais-usado">--</div>
+                <div class="text-sm text-gray-600">Local + Usado</div>
+            </div>
+            <div class="stats-card bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-orange-600" id="valor-medio-local">R$ 0</div>
+                <div class="text-sm text-gray-600">Valor Médio</div>
+            </div>
+        </div>
+
+        <!-- Conteúdo Principal -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Mapa -->
+            <div class="lg:col-span-3">
+                <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-bold text-gray-800">🗺️ Mapa de Calor - Origens</h3>
+                        <div class="flex gap-2">
+                            <select id="filtro-periodo" class="text-sm border border-gray-300 rounded-lg px-3 py-1 bg-white">
+                                <option value="todos">Todos os períodos</option>
+                                <option value="7">Últimos 7 dias</option>
+                                <option value="30">Últimos 30 dias</option>
+                                <option value="90">Últimos 90 dias</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Mapa Principal -->
+                    <div id="mapa-principal" class="mapa-container mapa-grid relative" style="height: 500px;">
+                        <!-- Zonas de referência -->
+                        <div class="zona-label" style="top: 20px; left: 20px;">Norte</div>
+                        <div class="zona-label" style="top: 20px; right: 20px;">Nordeste</div>
+                        <div class="zona-label" style="bottom: 20px; left: 20px;">Sul</div>
+                        <div class="zona-label" style="bottom: 20px; right: 20px;">Sudeste</div>
+                        <div class="zona-label" style="top: 50%; left: 50%; transform: translate(-50%, -50%);">Centro</div>
+                        
+                        <!-- Pontos serão inseridos dinamicamente aqui -->
+                        <div id="sem-dados-mapa" class="absolute inset-0 flex items-center justify-center text-white/70 text-center">
+                            <div>
+                                <div class="text-6xl mb-4">📍</div>
+                                <h3 class="text-xl font-semibold mb-2">Nenhum dado encontrado</h3>
+                                <p>Capture algumas corridas na página principal para ver o mapa</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar com Legenda e Detalhes -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- Legenda -->
+                <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">📊 Legenda</h3>
+                    <div class="space-y-3">
+                        <div class="legenda-item">
+                            <div class="legenda-cor" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);"></div>
+                            <span class="text-sm text-gray-700">Locais de Origem</span>
+                        </div>
+                        <div class="text-xs text-gray-600 mt-4">
+                            <strong>💡 Dica:</strong> Passe o mouse sobre os pontos para ver detalhes. Pontos maiores indicam mais corridas no local.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top 5 Locais -->
+                <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">🏆 Top 5 Origens</h3>
+                    <div id="ranking-locais" class="space-y-3">
+                        <!-- Será preenchido via JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Análise por Região -->
+                <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">🌍 Por Região</h3>
+                    <div id="analise-regiao" class="space-y-3">
+                        <!-- Será preenchido via JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let corridasCarregadas = [];
+        let locaisOrigens = {};
+        
+        // Carregar dados do localStorage
+        function carregarDados() {
+            const corridasSalvas = localStorage.getItem('corridasOCR99');
+            if (corridasSalvas) {
+                corridasCarregadas = JSON.parse(corridasSalvas);
+                processarDados();
+            }
+        }
+
+        // Processar dados das corridas
+        function processarDados() {
+            locaisOrigens = {};
+            
+            // Filtrar por período se necessário
+            const periodoFiltro = document.getElementById('filtro-periodo').value;
+            let corridasFiltradas = corridasCarregadas;
+            
+            if (periodoFiltro !== 'todos') {
+                const diasAtras = parseInt(periodoFiltro);
+                const dataLimite = new Date();
+                dataLimite.setDate(dataLimite.getDate() - diasAtras);
+                
+                corridasFiltradas = corridasCarregadas.filter(corrida => 
+                    new Date(corrida.dataHora) >= dataLimite
+                );
+            }
+
+            // Agrupar por origem
+            corridasFiltradas.forEach(corrida => {
+                const origem = corrida.origem || 'Local não identificado';
+                if (!locaisOrigens[origem]) {
+                    locaisOrigens[origem] = {
+                        corridas: [],
+                        totalValor: 0,
+                        count: 0
+                    };
+                }
+                locaisOrigens[origem].corridas.push(corrida);
+                locaisOrigens[origem].totalValor += corrida.valor;
+                locaisOrigens[origem].count++;
+            });
+
+            atualizarEstatisticas();
+            renderizarMapa();
+            renderizarRanking();
+            renderizarAnaliseRegiao();
+        }
+
+        // Atualizar estatísticas do header
+        function atualizarEstatisticas() {
+            const totalLocais = Object.keys(locaisOrigens).length;
+            const totalCorridas = corridasCarregadas.length;
+            
+            document.getElementById('total-locais').textContent = totalLocais;
+            document.getElementById('total-corridas-mapa').textContent = totalCorridas;
+            
+            if (totalLocais > 0) {
+                const localMaisUsado = Object.entries(locaisOrigens)
+                    .sort((a, b) => b[1].count - a[1].count)[0];
+                
+                const valorMedio = Object.values(locaisOrigens)
+                    .reduce((acc, local) => acc + local.totalValor, 0) / totalCorridas;
+                
+                document.getElementById('local-mais-usado').textContent = 
+                    localMaisUsado[0].length > 15 ? 
+                    localMaisUsado[0].substring(0, 12) + '...' : 
+                    localMaisUsado[0];
+                    
+                document.getElementById('valor-medio-local').textContent = 
+                    `R$ ${valorMedio.toFixed(0)}`;
+            }
+        }
+
+        // Gerar posição pseudo-aleatória baseada no nome do local
+        function gerarPosicao(nomeLocal) {
+            let hash = 0;
+            for (let i = 0; i < nomeLocal.length; i++) {
+                const char = nomeLocal.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32-bit integer
+            }
+            
+            // Usar hash para gerar posições consistentes
+            const x = Math.abs(hash % 80) + 10; // 10-90% da largura
+            const y = Math.abs((hash >> 8) % 80) + 10; // 10-90% da altura
+            
+            return { x, y };
+        }
+
+        // Determinar tamanho do pin baseado na quantidade de corridas
+        function calcularTamanhoPin(quantidade) {
+            if (quantidade >= 10) return 32;
+            if (quantidade >= 5) return 28;
+            if (quantidade >= 3) return 24;
+            return 20;
+        }
+
+        // Renderizar mapa
+        function renderizarMapa() {
+            const mapaPrincipal = document.getElementById('mapa-principal');
+            const semDados = document.getElementById('sem-dados-mapa');
+            
+            // Limpar pins existentes
+            const pinsExistentes = mapaPrincipal.querySelectorAll('.local-pin');
+            pinsExistentes.forEach(pin => pin.remove());
+            
+            const totalLocais = Object.keys(locaisOrigens).length;
+            
+            if (totalLocais === 0) {
+                semDados.style.display = 'flex';
+                return;
+            }
+            
+            semDados.style.display = 'none';
+            
+            // Criar pins para cada local
+            Object.entries(locaisOrigens).forEach(([nomeLocal, dados]) => {
+                const posicao = gerarPosicao(nomeLocal);
+                const tamanho = calcularTamanhoPin(dados.count);
+                const valorMedio = (dados.totalValor / dados.count).toFixed(2);
+                
+                const pin = document.createElement('div');
+                pin.className = 'local-pin';
+                pin.style.left = `${posicao.x}%`;
+                pin.style.top = `${posicao.y}%`;
+                
+                pin.innerHTML = `
+                    <div class="pin-icon" style="width: ${tamanho}px; height: ${tamanho}px;"></div>
+                    <div class="pin-label">
+                        <div class="font-bold">${nomeLocal}</div>
+                        <div>${dados.count} corridas</div>
+                        <div>R$ ${valorMedio} média</div>
+                    </div>
+                `;
+                
+                // Adicionar evento de clique
+                pin.addEventListener('click', () => {
+                    mostrarDetalhesLocal(nomeLocal, dados);
+                });
+                
+                mapaPrincipal.appendChild(pin);
+            });
+        }
+
+        // Mostrar detalhes do local (pode ser expandido para modal)
+        function mostrarDetalhesLocal(nomeLocal, dados) {
+            const valorMedio = (dados.totalValor / dados.count).toFixed(2);
+            const ultimaCorrida = new Date(dados.corridas[0].dataHora).toLocaleDateString('pt-BR');
+            
+            alert(`📍 ${nomeLocal}\n\n` +
+                  `🚗 ${dados.count} corridas realizadas\n` +
+                  `💰 R$ ${dados.totalValor.toFixed(2)} faturamento total\n` +
+                  `📊 R$ ${valorMedio} valor médio por corrida\n` +
+                  `📅 Última corrida: ${ultimaCorrida}`);
+        }
+
+        // Renderizar ranking dos top 5 locais
+        function renderizarRanking() {
+            const rankingContainer = document.getElementById('ranking-locais');
+            
+            const ranking = Object.entries(locaisOrigens)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 5);
+            
+            if (ranking.length === 0) {
+                rankingContainer.innerHTML = '<div class="text-center text-gray-500 py-4">Nenhum dado disponível</div>';
+                return;
+            }
+            
+            rankingContainer.innerHTML = ranking.map(([local, dados], index) => {
+                const valorMedio = (dados.totalValor / dados.count).toFixed(2);
+                const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+                
+                return `
+                    <div class="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-indigo-500">
+                        <div class="flex items-center gap-2 flex-1 min-w-0">
+                            <span class="text-lg">${medals[index]}</span>
+                            <div class="flex-1 min-w-0">
+                                <div class="font-medium text-gray-800 text-sm truncate" title="${local}">
+                                    ${local.length > 20 ? local.substring(0, 17) + '...' : local}
+                                </div>
+                                <div class="text-xs text-gray-600">
+                                    ${dados.count} corridas • R$ ${valorMedio}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Renderizar análise por região (simulada)
+        function renderizarAnaliseRegiao() {
+            const regiaoContainer = document.getElementById('analise-regiao');
+            
+            // Simular regiões baseado no hash dos nomes
+            const regioes = {
+                'Centro': { corridas: 0, valor: 0 },
+                'Norte': { corridas: 0, valor: 0 },
+                'Sul': { corridas: 0, valor: 0 },
+                'Leste': { corridas: 0, valor: 0 },
+                'Oeste': { corridas: 0, valor: 0 }
+            };
+            
+            const nomeRegioes = Object.keys(regioes);
+            
+            Object.entries(locaisOrigens).forEach(([local, dados]) => {
+                let hash = 0;
+                for (let i = 0; i < local.length; i++) {
+                    hash += local.charCodeAt(i);
+                }
+                const regiao = nomeRegioes[hash % nomeRegioes.length];
+                regioes[regiao].corridas += dados.count;
+                regioes[regiao].valor += dados.totalValor;
+            });
+            
+            const regioesOrdenadas = Object.entries(regioes)
+                .filter(([_, dados]) => dados.corridas > 0)
+                .sort((a, b) => b[1].corridas - a[1].corridas);
+            
+            if (regioesOrdenadas.length === 0) {
+                regiaoContainer.innerHTML = '<div class="text-center text-gray-500 py-4">Nenhum dado disponível</div>';
+                return;
+            }
+            
+            regiaoContainer.innerHTML = regioesOrdenadas.map(([regiao, dados]) => {
+                const valorMedio = dados.corridas > 0 ? (dados.valor / dados.corridas).toFixed(2) : '0.00';
+                const cores = {
+                    'Centro': 'from-purple-50 to-purple-100 border-purple-500',
+                    'Norte': 'from-blue-50 to-blue-100 border-blue-500',
+                    'Sul': 'from-green-50 to-green-100 border-green-500',
+                    'Leste': 'from-orange-50 to-orange-100 border-orange-500',
+                    'Oeste': 'from-pink-50 to-pink-100 border-pink-500'
+                };
+                
+                return `
+                    <div class="p-3 bg-gradient-to-r ${cores[regiao]} rounded-lg border-l-4">
+                        <div class="font-medium text-gray-800 text-sm">${regiao}</div>
+                        <div class="text-xs text-gray-600">
+                            ${dados.corridas} corridas • R$ ${valorMedio} média
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Atualizar mapa
+        function atualizarMapa() {
+            carregarDados();
+        }
+
+        // Voltar para página principal
+        function voltarPrincipal() {
+            window.location.href = 'index.html';
+        }
+
+        // Event listeners
+        document.getElementById('filtro-periodo').addEventListener('change', () => {
+            processarDados();
+        });
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarDados();
+        });
+    </script>
+</body>
+</html>
