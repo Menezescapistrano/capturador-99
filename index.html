@@ -58,6 +58,13 @@
                 </div>
             </div>
             
+            <!-- Botão para o mapa -->
+            <div class="flex gap-2 mt-4">
+                <button onclick="abrirMapa()" class="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2">
+                    🗺️ Ver Mapa de Origens
+                </button>
+            </div>
+            
             <!-- Upload Area -->
             <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-6 border-2 border-dashed border-purple-300 text-center">
                 <div class="text-6xl mb-4">📸</div>
@@ -162,10 +169,16 @@
     </div>
 
     <script>
+        // Configurações de pré-processamento
+        const SCALE_FACTOR = 2;
+        const CONTRAST_PERCENT = 130;
+        const BRIGHTNESS_PERCENT = 105;
+        const filtroValor = 35;
+        const MIN_FONTHEIGHT_PX = 8;
+
         // Estado da aplicação
         let corridasCapturadas = [];
         let printsArmazenados = [];
-        const filtroValor = 35;
 
         // Elementos DOM
         const uploadInput = document.getElementById('screenshot-input');
@@ -204,210 +217,266 @@
             localStorage.setItem('printsOCR99', JSON.stringify(printsArmazenados));
         }
 
-        // FUNÇÃO MELHORADA DE EXTRAÇÃO - VERSÃO CORRIGIDA
-        function extrairDadosCorrida(textoOCR) {
-            console.log("=== TEXTO OCR COMPLETO ===");
-            console.log(textoOCR);
-            console.log("=========================");
+        // Pré-processamento de imagem
+        function preprocessImage(file, scale = SCALE_FACTOR, contrastPercent = CONTRAST_PERCENT, brightnessPercent = BRIGHTNESS_PERCENT) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const fr = new FileReader();
+                fr.onload = () => { img.src = fr.result; };
+                fr.onerror = reject;
+                img.onload = () => {
+                    const w = img.naturalWidth * scale;
+                    const h = img.naturalHeight * scale;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
 
-            // Normalizar o texto
-            let texto = textoOCR.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-            
-            // 1. EXTRAIR VALOR - MÚLTIPLOS PADRÕES MELHORADOS
-            let valor = null;
-            
-            // Padrão 1: R$ seguido de número (mais comum)
-            const valorPatterns = [
-                /R\$\s*(\d+(?:[.,]\d{2})?)/gi,
-                /rs\s*(\d+(?:[.,]\d{2})?)/gi,
-                /r\s+(\d+(?:[.,]\d{2})?)/gi,
-                /(\d+,\d{2})\s*(?=.*(?:expresso|pop|km))/gi,
-                /(\d+\.\d{2})\s*(?=.*(?:expresso|pop|km))/gi
-            ];
+                    // Limpar fundo e aplicar filtros
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.filter = `contrast(${contrastPercent}%) brightness(${brightnessPercent}%)`;
+                    ctx.drawImage(img, 0, 0, w, h);
 
-            for (const pattern of valorPatterns) {
-                const matches = [...textoOCR.matchAll(pattern)];
-                if (matches.length > 0) {
-                    // Pegar o maior valor encontrado (provavelmente o da corrida)
-                    const valores = matches.map(m => parseFloat(m[1].replace(',', '.')))
-                        .filter(v => v >= 10 && v <= 200); // Valores realistas para corridas
-                    
-                    if (valores.length > 0) {
-                        valor = Math.max(...valores);
-                        console.log(`Valor encontrado: R$ ${valor} (padrão: ${pattern})`);
+                    resolve({ dataURL: canvas.toDataURL('image/png'), width: w, height: h });
+                };
+                fr.readAsDataURL(file);
+            });
+        }
+
+        // Normalizar palavras do OCR
+        function normalizeWord(w) {
+            const bbox = w.bbox || (w.boundingBox ? w.boundingBox : null);
+            let x0, y0, x1, y1;
+            if (bbox && typeof bbox.x0 !== 'undefined') {
+                x0 = bbox.x0; y0 = bbox.y0; x1 = bbox.x1; y1 = bbox.y1;
+            } else {
+                x0 = w.x0 || w.x || 0;
+                y0 = w.y0 || w.y || 0;
+                x1 = w.x1 || (x0 + (w.width || 0));
+                y1 = w.y1 || (y0 + (w.height || 0));
+            }
+            const width = Math.max(1, x1 - x0);
+            const height = Math.max(1, y1 - y0);
+            return {
+                text: (w.text || w.symbol || '').toString().trim(),
+                conf: (typeof w.confidence !== 'undefined') ? w.confidence : (w.conf || 0),
+                x: x0, y: y0, x1, y1, width, height
+            };
+        }
+
+        // Agrupar palavras em linhas
+        function buildLines(words, imageHeight) {
+            const lines = [];
+            const tolerance = Math.max(10, imageHeight * 0.02);
+            words.sort((a, b) => a.y - b.y || a.x - b.x);
+
+            for (const w of words) {
+                const midY = w.y + w.height / 2;
+                let placed = false;
+                for (const line of lines) {
+                    const lineMid = line.y + line.height / 2;
+                    if (Math.abs(lineMid - midY) <= tolerance) {
+                        line.words.push(w);
+                        line.x = Math.min(line.x, w.x);
+                        line.y = Math.min(line.y, w.y);
+                        line.x1 = Math.max(line.x1, w.x1);
+                        line.y1 = Math.max(line.y1, w.y1);
+                        line.width = line.x1 - line.x;
+                        line.height = line.y1 - line.y;
+                        line.avgConf = (line.avgConf * (line.count) + w.conf) / (line.count + 1);
+                        line.count += 1;
+                        placed = true;
                         break;
                     }
                 }
+                if (!placed) {
+                    lines.push({
+                        words: [w],
+                        x: w.x, y: w.y, x1: w.x1, y1: w.y1,
+                        width: w.width, height: w.height,
+                        avgConf: w.conf,
+                        count: 1
+                    });
+                }
             }
 
-            // Fallback: buscar números que parecem valores de corrida
-            if (!valor) {
-                const numerosSoltos = textoOCR.match(/\b(\d{2},\d{2}|\d{2}\.\d{2})\b/g);
-                if (numerosSoltos) {
-                    const possiveisValores = numerosSoltos
-                        .map(n => parseFloat(n.replace(',', '.')))
-                        .filter(v => v >= 15 && v <= 150);
+            // Montar texto por linha
+            for (const l of lines) {
+                l.words.sort((a, b) => a.x - b.x);
+                l.text = l.words.map(w => w.text).join(' ').replace(/\s{2,}/g, ' ').trim();
+                l.centerX = l.x + l.width / 2;
+                l.centerY = l.y + l.height / 2;
+                l.fontHeight = Math.max(...l.words.map(w => w.height));
+            }
+
+            lines.sort((a, b) => a.y - b.y);
+            return lines;
+        }
+
+        // Extrair valores monetários
+        function parseMonetaryFromLines(lines, imageWidth, imageHeight) {
+            const moneyRegex = /(R\$)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2}))|([0-9]+[.,][0-9]{2})/i;
+            const candidates = [];
+
+            for (const line of lines) {
+                if (!line.text) continue;
+                const m = line.text.match(moneyRegex);
+                if (m) {
+                    let numberRaw = (m[2] || m[3] || '').trim();
+                    if (!numberRaw) continue;
+                    let cleaned = numberRaw.replace(/\./g, '').replace(',', '.');
+                    const numeric = parseFloat(cleaned);
+                    if (!isFinite(numeric)) continue;
                     
-                    if (possiveisValores.length > 0) {
-                        valor = Math.max(...possiveisValores);
-                        console.log(`Valor fallback: R$ ${valor}`);
+                    const posScoreX = (line.centerX / imageWidth);
+                    const posScoreY = (line.centerY / imageHeight);
+                    const fontScore = Math.max(line.fontHeight, MIN_FONTHEIGHT_PX);
+                    const confScore = line.avgConf || 0.5;
+                    const score = Math.log(numeric + 1) * (fontScore) * (1 + posScoreX) * (1 + posScoreY) * (1 + confScore/100);
+
+                    candidates.push({
+                        numeric,
+                        cleaned,
+                        text: line.text,
+                        line,
+                        score
+                    });
+                }
+            }
+
+            if (candidates.length === 0) return null;
+
+            // Preferir candidatos acima do filtroValor
+            const aboveFilter = candidates.filter(c => c.numeric >= filtroValor);
+            if (aboveFilter.length > 0) {
+                aboveFilter.sort((a, b) => b.score - a.score);
+                return aboveFilter[0];
+            }
+            
+            candidates.sort((a, b) => {
+                if (b.numeric !== a.numeric) return b.numeric - a.numeric;
+                return b.score - a.score;
+            });
+            return candidates[0];
+        }
+
+        // Extração avançada de dados
+        function extrairDadosCorridaAvancado(textoOCR, ocrData, imageWidth, imageHeight) {
+            const textoNormalizado = (textoOCR || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s{2,}/g, ' ').trim();
+            const rawWords = (ocrData && ocrData.words) ? ocrData.words : [];
+            const words = rawWords.map(normalizeWord).filter(w => w.text && w.text.trim().length > 0);
+            const lines = buildLines(words, imageHeight);
+            
+            // Detectar valor
+            const candidateGlobal = parseMonetaryFromLines(lines, imageWidth, imageHeight);
+            const linesRightBottom = lines.filter(l => l.centerX > imageWidth*0.4 && l.centerY > imageHeight*0.2);
+            const candidateRB = parseMonetaryFromLines(linesRightBottom, imageWidth, imageHeight);
+            
+            let chosen = candidateGlobal;
+            if (candidateRB) {
+                if (!chosen) chosen = candidateRB;
+                else {
+                    if (candidateRB.numeric > chosen.numeric * 0.99) {
+                        chosen = (candidateRB.score >= chosen.score) ? candidateRB : chosen;
+                    } else if (chosen.numeric < candidateRB.numeric) {
+                        chosen = candidateRB;
                     }
                 }
             }
 
-            // 2. EXTRAIR AVALIAÇÃO E CORRIDAS DO PASSAGEIRO
-            let avaliacao = null;
-            let corridasPassageiro = null;
+            if (!chosen) {
+                const fallbackMatch = textoNormalizado.match(/R\$\s*([0-9.,]+)/i);
+                if (fallbackMatch) {
+                    const raw = fallbackMatch[1].replace(/\./g, '').replace(',', '.');
+                    chosen = { numeric: parseFloat(raw), text: fallbackMatch[0], line: { text: fallbackMatch[0] } };
+                }
+            }
+
+            const valor = chosen ? chosen.numeric : null;
             
+            // Extrair origem/destino
+            let origem = "Origem não identificada";
+            let destino = "Destino não identificado";
+            
+            const labelRegexOrigem = /\b(origem)\b[:\s-]*/i;
+            const labelRegexDestino = /\b(destino)\b[:\s-]*/i;
+            const addressKeywords = /\b(rua|r\.|av|avenida|estrada|rodovia|praça|terminal|parque|alameda|bairro|embarque|t2|terminal 2)\b/i;
+
+            for (let i = 0; i < lines.length; i++) {
+                const t = lines[i].text;
+                if (!t) continue;
+                
+                if (labelRegexOrigem.test(t)) {
+                    origem = t.replace(labelRegexOrigem, '').trim();
+                    if (!origem && lines[i+1]) origem = lines[i+1].text.trim();
+                }
+                
+                if (labelRegexDestino.test(t)) {
+                    destino = t.replace(labelRegexDestino, '').trim();
+                    if (!destino && lines[i+1]) destino = lines[i+1].text.trim();
+                }
+            }
+
+            // Fallback para endereços
+            const addressLines = lines.filter(l => addressKeywords.test(l.text));
+            if (origem === "Origem não identificada" && addressLines.length >= 1) {
+                origem = addressLines[0].text;
+            }
+            if (destino === "Destino não identificado" && addressLines.length >= 2) {
+                destino = addressLines[1].text;
+            }
+
+            // Limpar e truncar endereços
+            origem = origem.replace(/\s{2,}/g, ' ').replace(/^\W+|\W+$/g, '').trim();
+            destino = destino.replace(/\s{2,}/g, ' ').replace(/^\W+|\W+$/g, '').trim();
+            
+            if (origem.length > 60) origem = origem.substring(0, 57) + '...';
+            if (destino.length > 60) destino = destino.substring(0, 57) + '...';
+
+            // Extrair tempo e distância
+            let tempoCorrida = null, distanciaCorrida = null, tempoPegar = null, distanciaPegar = null;
+            const tempoMatch = textoNormalizado.match(/(\d+)\s*min/i);
+            if (tempoMatch) tempoCorrida = tempoMatch[1] + 'min';
+            const distanciaMatch = textoNormalizado.match(/([\d.,]+)\s*km/i);
+            if (distanciaMatch) distanciaCorrida = distanciaMatch[1].replace(',', '.') + 'km';
+
+            // Extrair avaliação
+            let avaliacao = null, corridasPassageiro = null;
             const avaliacaoPatterns = [
                 /(\d+[.,]\d+)\s*[·•\-]\s*(\d+)\s*corridas?/i,
                 /(\d+[.,]\d+)\s*(\d+)\s*corridas?/i,
                 /[★⭐]\s*(\d+[.,]\d+).*?(\d+)\s*corridas?/i
             ];
-
-            for (const pattern of avaliacaoPatterns) {
-                const match = textoOCR.match(pattern);
-                if (match) {
-                    avaliacao = match[1].replace(',', '.');
-                    corridasPassageiro = match[2] + ' corridas';
-                    console.log(`Avaliação: ${avaliacao}, Corridas: ${corridasPassageiro}`);
-                    break;
+            for (const p of avaliacaoPatterns) {
+                const m = textoNormalizado.match(p);
+                if (m) { 
+                    avaliacao = m[1].replace(',', '.'); 
+                    corridasPassageiro = m[2] + ' corridas'; 
+                    break; 
                 }
             }
 
-            // 3. EXTRAIR ROTAS COM MELHOR PRECISÃO
-            const rotas = [];
-            
-            // Padrão melhorado para capturar rotas com endereços completos
-            const rotaPatterns = [
-                /(\d+)\s*min\s*\(([0-9.,]+)\s*km\)\s*([^(\n\r]+?)(?=\s*\d+\s*min|\s*$)/gi,
-                /([🔄⬆⬇↑↓🔵🟢])\s*(\d+)\s*min\s*\(([0-9.,]+)\s*km\)\s*([^(\n\r]+?)(?=\s*[🔄⬆⬇↑↓🔵🟢]|\s*$)/gi,
-                /(\d+min)\s*\(([0-9.,]+km)\)\s*([^\n\r]+)/gi
-            ];
+            const corridaLonga = textoNormalizado.toLowerCase().includes("corrida longa");
 
-            for (const pattern of rotaPatterns) {
-                let match;
-                while ((match = pattern.exec(textoOCR)) !== null) {
-                    let endereco = '';
-                    let tempo = '';
-                    let distancia = '';
-
-                    if (match.length === 4 && !isNaN(match[1])) {
-                        // Padrão: tempo min (distancia km) endereço
-                        tempo = match[1] + 'min';
-                        distancia = match[2].replace(',', '.') + 'km';
-                        endereco = match[3];
-                    } else if (match.length === 5) {
-                        // Padrão com ícone
-                        tempo = match[2] + 'min';
-                        distancia = match[3].replace(',', '.') + 'km';
-                        endereco = match[4];
-                    } else if (match.length === 4) {
-                        // Padrão simples
-                        tempo = match[1];
-                        distancia = match[2];
-                        endereco = match[3];
-                    }
-
-                    // Limpar o endereço
-                    endereco = endereco
-                        .replace(/^\W+|\W+$/g, '')
-                        .replace(/\s+/g, ' ')
-                        .replace(/\d+\s*parada\s*\(\s*s?\s*\)/gi, '')
-                        .trim();
-
-                    if (endereco.length > 5 && tempo && distancia) {
-                        rotas.push({
-                            tempo: tempo,
-                            distancia: distancia,
-                            endereco: endereco
-                        });
-                        console.log(`Rota encontrada: ${tempo} ${distancia} - ${endereco}`);
-                    }
-                }
-            }
-
-            // 4. DETERMINAR ORIGEM E DESTINO
-            let origem = "Origem não identificada";
-            let destino = "Destino não identificado";
-            let distanciaPegar = null;
-            let distanciaCorrida = null;
-            let tempoPegar = null;
-            let tempoCorrida = null;
-
-            console.log(`Total de rotas encontradas: ${rotas.length}`);
-
-            if (rotas.length >= 2) {
-                // Primeira rota: motorista até o passageiro
-                origem = rotas[0].endereco;
-                distanciaPegar = rotas[0].distancia;
-                tempoPegar = rotas[0].tempo;
-                
-                // Última rota: viagem do passageiro
-                destino = rotas[rotas.length - 1].endereco;
-                distanciaCorrida = rotas[rotas.length - 1].distancia;
-                tempoCorrida = rotas[rotas.length - 1].tempo;
-                
-                console.log(`Múltiplas rotas - Origem: ${origem}, Destino: ${destino}`);
-            } else if (rotas.length === 1) {
-                // Apenas uma rota: consideramos como viagem do passageiro
-                destino = rotas[0].endereco;
-                distanciaCorrida = rotas[0].distancia;
-                tempoCorrida = rotas[0].tempo;
-                origem = "Embarque próximo";
-                
-                console.log(`Uma rota - Destino: ${destino}`);
-            } else {
-                // Fallback: tentar extrair endereços por outros métodos
-                const enderecoPatterns = [
-                    /(?:rua|av|avenida|estrada|rod|rodovia)\s+[^,\n\r]+/gi,
-                    /[A-Z][a-záàâãéèêíïóôõöúçñ\s]+(?:,\s*\d+)/gi
-                ];
-
-                for (const pattern of enderecoPatterns) {
-                    const enderecos = textoOCR.match(pattern);
-                    if (enderecos && enderecos.length >= 1) {
-                        if (origem === "Origem não identificada") {
-                            origem = enderecos[0].trim();
-                        }
-                        if (enderecos.length >= 2 && destino === "Destino não identificado") {
-                            destino = enderecos[1].trim();
-                        }
-                    }
-                }
-            }
-
-            // 5. LIMPEZA FINAL DOS CAMPOS
-            origem = origem.replace(/^\W+|\W+$/g, '').trim();
-            destino = destino.replace(/^\W+|\W+$/g, '').trim();
-            
-            // Truncar endereços muito longos
-            if (origem.length > 50) origem = origem.substring(0, 47) + "...";
-            if (destino.length > 50) destino = destino.substring(0, 47) + "...";
-
-            const resultado = {
-                valor: valor,
-                avaliacao: avaliacao,
-                corridasPassageiro: corridasPassageiro,
-                tempoPegar: tempoPegar,
-                distanciaPegar: distanciaPegar,
-                tempoCorrida: tempoCorrida,
-                distanciaCorrida: distanciaCorrida,
-                origem: origem,
-                destino: destino,
+            return {
+                valor,
+                avaliacao,
+                corridasPassageiro,
+                tempoPegar,
+                distanciaPegar,
+                tempoCorrida,
+                distanciaCorrida,
+                origem,
+                destino,
                 dataHora: new Date().toISOString(),
                 diaSemana: new Date().getDay(),
-                hora: new Date().getHours()
+                hora: new Date().getHours(),
+                corridaLonga
             };
-
-            console.log("=== RESULTADO FINAL ===");
-            console.log(resultado);
-            console.log("======================");
-
-            return resultado;
         }
 
-        // Processar screenshot com OCR real
+        // Processar screenshot com OCR
         async function processarScreenshot(arquivo) {
             if (!arquivo) return;
 
@@ -417,8 +486,12 @@
             uploadText.textContent = 'Processando...';
 
             try {
-                const { data: { text } } = await Tesseract.recognize(
-                    arquivo,
+                // Pré-processar imagem
+                const { dataURL, width, height } = await preprocessImage(arquivo, SCALE_FACTOR, CONTRAST_PERCENT, BRIGHTNESS_PERCENT);
+
+                // Executar OCR
+                const { data } = await Tesseract.recognize(
+                    dataURL,
                     'por',
                     {
                         logger: progresso => {
@@ -430,13 +503,12 @@
                     }
                 );
 
-                console.log("Texto extraído pelo OCR:", text);
-                
-                // Mostrar texto do OCR para debug
-                ocrText.textContent = text;
+                console.log("Dados OCR:", data);
+                ocrText.textContent = data.text || '';
                 debugOcr.classList.remove('hidden');
                 
-                const dados = extrairDadosCorrida(text);
+                // Extrair dados avançados
+                const dados = extrairDadosCorridaAvancado(data.text, data, width, height);
                 
                 if (!dados.valor) {
                     alert("❌ Não foi possível identificar o valor da corrida. Verifique se é uma tela de corrida da 99 válida.");
@@ -448,6 +520,7 @@
                     return;
                 }
 
+                // Salvar corrida
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const novaCorrida = {
@@ -539,6 +612,11 @@
                             ${corrida.distanciaCorrida ? `
                             <div class="info-badge bg-green-100 text-green-800">
                                 📏 ${corrida.distanciaCorrida}
+                            </div>
+                            ` : ''}
+                            ${corrida.corridaLonga ? `
+                            <div class="info-badge bg-purple-100 text-purple-800">
+                                🚗 Corrida Longa
                             </div>
                             ` : ''}
                         </div>
@@ -672,6 +750,11 @@
                 salvarDados();
                 atualizarInterface();
             }
+        }
+
+        // Função para abrir o mapa
+        function abrirMapa() {
+            window.open('mapa.html', '_blank');
         }
 
         // Event listeners
